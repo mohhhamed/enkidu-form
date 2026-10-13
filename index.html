@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>استمارة الدرجات — إنكيدو</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-bg-color,#F1F5F9);
+  --card:var(--tg-theme-secondary-bg-color,#FFFFFF);
+  --txt:var(--tg-theme-text-color,#0F172A);
+  --hint:var(--tg-theme-hint-color,#64748B);
+  --btn:var(--tg-theme-button-color,#2563EB);
+  --btn-t:var(--tg-theme-button-text-color,#FFFFFF);
+  --line:rgba(128,128,128,.30);
+  --ok:#16A34A; --bad:#DC2626; --warn:#D97706;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font-family:system-ui,-apple-system,'Segoe UI','Cairo','Tajawal',Tahoma,Arial,sans-serif;
+  padding-bottom:calc(92px + env(safe-area-inset-bottom));}
+.top{position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 14px 8px;
+  border-bottom:1px solid var(--line)}
+.top h1{margin:0;font-size:17px;line-height:1.5}
+.top .sub{color:var(--hint);font-size:12.5px;margin-top:2px}
+.bar{height:6px;background:var(--line);border-radius:6px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .2s}
+.prog{display:flex;justify-content:space-between;font-size:12.5px;color:var(--hint);margin-top:5px}
+.prog b{color:var(--txt)}
+.banner{margin:10px 14px 0;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.7}
+.banner.warn{background:rgba(217,119,6,.14);color:var(--warn);border:1px solid rgba(217,119,6,.4)}
+.banner.err{background:rgba(220,38,38,.12);color:var(--bad);border:1px solid rgba(220,38,38,.4)}
+.list{padding:10px 12px 0}
+.row{display:grid;grid-template-columns:34px 1fr 96px 40px;align-items:center;gap:8px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px}
+.row.done{border-color:rgba(22,163,74,.55)}
+.row.bad{border-color:var(--bad);background:rgba(220,38,38,.08)}
+.idx{width:28px;height:28px;border-radius:50%;background:var(--line);color:var(--txt);
+  display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700}
+.row.done .idx{background:var(--ok);color:#fff}
+.nm{font-size:15px;font-weight:600;line-height:1.5;word-break:break-word}
+.g{width:100%;height:46px;border:2px solid var(--line);border-radius:10px;background:var(--bg);
+  color:var(--txt);text-align:center;font-size:20px;font-weight:700;direction:ltr;outline:none;
+  font-family:inherit}
+.g:focus{border-color:var(--btn)}
+.row.bad .g{border-color:var(--bad)}
+.nb{width:40px;height:40px;border:1px solid var(--line);border-radius:10px;background:transparent;
+  color:var(--hint);font-size:18px}
+.nb.has{color:var(--btn);border-color:var(--btn)}
+.note{grid-column:1 / -1;display:none}
+.note.show{display:block}
+.note input{width:100%;height:42px;border:1px solid var(--line);border-radius:10px;background:var(--bg);
+  color:var(--txt);padding:0 10px;font-size:14px;font-family:inherit}
+.act{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);
+  padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
+.send{width:100%;height:52px;border:0;border-radius:14px;background:var(--btn);color:var(--btn-t);
+  font-size:17px;font-weight:700;font-family:inherit}
+.send:active{opacity:.85}
+.send[disabled]{opacity:.5}
+.hintline{text-align:center;color:var(--hint);font-size:12px;margin-top:6px}
+.out{margin:12px 14px;padding:10px;border:1px dashed var(--line);border-radius:10px;display:none}
+.out textarea{width:100%;height:110px;direction:ltr;font-family:monospace;font-size:11px;
+  background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px}
+.out button{margin-top:6px;padding:8px 14px;border-radius:8px;border:0;background:var(--btn);color:var(--btn-t);
+  font-family:inherit}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1 id="ttl">📝 استمارة الدرجات</h1>
+  <div class="sub" id="sub"></div>
+  <div class="bar"><i id="barFill"></i></div>
+  <div class="prog"><span>المُعبَّأ: <b id="cntF">0</b> من <b id="cntN">0</b></span><span id="saveInd"></span></div>
+</div>
+<div id="msg"></div>
+<div class="list" id="list"></div>
+<div class="out" id="out">
+  <b>معاينة خارج تيليجرام</b> — هذا ما كان سيُرسَل للبوت:
+  <textarea id="outTxt" readonly></textarea>
+  <button type="button" id="outCopy">📋 نسخ</button>
+</div>
+<div class="act">
+  <button class="send" id="send" type="button">📤 إرسال للإدارة</button>
+  <div class="hintline" id="hint">يُحفَظ ما تكتبه تلقائياً على هذا الجهاز</div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ───────── تيليجرام ───────── */
+var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+var inTg = !!(tg && tg.initData);
+try { if (tg) { tg.ready(); tg.expand(); } } catch (e) {}
+
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+/* ───────── فكّ الضغط (inflate — RFC1951) بلا مكتبات ───────── */
+var LENB = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+var LENX = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+var DSTB = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+var DSTX = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+var CLORD = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+
+function huff(lengths, n) {
+  var count = new Uint16Array(16), symbol = new Uint16Array(n), offs = new Uint16Array(16), i;
+  for (i = 0; i < n; i++) count[lengths[i]]++;
+  offs[1] = 0;
+  for (i = 1; i < 15; i++) offs[i + 1] = offs[i] + count[i];
+  for (i = 0; i < n; i++) if (lengths[i]) symbol[offs[lengths[i]]++] = i;
+  return { count: count, symbol: symbol };
+}
+function inflateRaw(data) {
+  var pos = 0, bitbuf = 0, bitcnt = 0, out = [];
+  function bits(need) {
+    var val = bitbuf;
+    while (bitcnt < need) {
+      if (pos >= data.length) throw new Error('eof');
+      val |= data[pos++] << bitcnt;
+      bitcnt += 8;
+    }
+    bitbuf = val >>> need;
+    bitcnt -= need;
+    return val & ((1 << need) - 1);
+  }
+  function decode(h) {
+    var code = 0, first = 0, index = 0, len, count;
+    for (len = 1; len <= 15; len++) {
+      code |= bits(1);
+      count = h.count[len];
+      if (code - count < first) return h.symbol[index + (code - first)];
+      index += count; first += count; first <<= 1; code <<= 1;
+    }
+    throw new Error('bad code');
+  }
+  function codes(lc, dc) {
+    for (;;) {
+      var sym = decode(lc), len, dist, ds, k;
+      if (sym < 256) out.push(sym);
+      else if (sym === 256) return;
+      else {
+        sym -= 257;
+        if (sym >= 29) throw new Error('bad len');
+        len = LENB[sym] + bits(LENX[sym]);
+        ds = decode(dc);
+        if (ds >= 30) throw new Error('bad dist');
+        dist = DSTB[ds] + bits(DSTX[ds]);
+        if (dist > out.length) throw new Error('far');
+        for (k = 0; k < len; k++) out.push(out[out.length - dist]);
+      }
+    }
+  }
+  var last, type, i;
+  do {
+    last = bits(1); type = bits(2);
+    if (type === 0) {
+      bitbuf = 0; bitcnt = 0;
+      var ln = data[pos] | (data[pos + 1] << 8);
+      pos += 4;
+      for (i = 0; i < ln; i++) out.push(data[pos++]);
+    } else if (type === 1) {
+      var fl = new Uint8Array(288);
+      for (i = 0; i < 144; i++) fl[i] = 8;
+      for (; i < 256; i++) fl[i] = 9;
+      for (; i < 280; i++) fl[i] = 7;
+      for (; i < 288; i++) fl[i] = 8;
+      var fd = new Uint8Array(30);
+      for (i = 0; i < 30; i++) fd[i] = 5;
+      codes(huff(fl, 288), huff(fd, 30));
+    } else if (type === 2) {
+      var nlen = bits(5) + 257, ndist = bits(5) + 1, ncode = bits(4) + 4;
+      var lens = new Uint8Array(320);
+      for (i = 0; i < ncode; i++) lens[CLORD[i]] = bits(3);
+      var cl = huff(lens, 19);
+      var all = new Uint8Array(nlen + ndist), idx = 0, sym, rep, prev;
+      while (idx < nlen + ndist) {
+        sym = decode(cl);
+        if (sym < 16) all[idx++] = sym;
+        else {
+          prev = 0;
+          if (sym === 16) { if (!idx) throw new Error('rep'); prev = all[idx - 1]; rep = 3 + bits(2); }
+          else if (sym === 17) rep = 3 + bits(3);
+          else rep = 11 + bits(7);
+          while (rep--) all[idx++] = prev;
+        }
+      }
+      codes(huff(all.subarray(0, nlen), nlen), huff(all.subarray(nlen), ndist));
+    } else throw new Error('type');
+  } while (!last);
+  return new Uint8Array(out);
+}
+function b64urlBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  var bin = atob(s), u = new Uint8Array(bin.length), i;
+  for (i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+function utf8Text(u) {
+  if (window.TextDecoder) return new TextDecoder('utf-8').decode(u);
+  var s = '', i;
+  for (i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+  return decodeURIComponent(escape(s));
+}
+function utf8Len(str) {
+  if (window.TextEncoder) return new TextEncoder().encode(str).length;
+  return unescape(encodeURIComponent(str)).length;
+}
+
+/* ───────── قراءة الاستمارة من الرابط ───────── */
+function param(name) {
+  var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(location.search);
+  return m ? decodeURIComponent(m[1].replace(/\+/g, '%20')) : '';
+}
+function readForm() {
+  var z = param('z'), j = param('j');
+  if (z) return JSON.parse(utf8Text(inflateRaw(b64urlBytes(z))));
+  if (j) return JSON.parse(utf8Text(b64urlBytes(j)));
+  return null;
+}
+
+/* ───────── أرقام ───────── */
+function normNum(s) {
+  var out = '', dot = false, i, c, code;
+  s = String(s == null ? '' : s);
+  for (i = 0; i < s.length; i++) {
+    c = s.charAt(i); code = s.charCodeAt(i);
+    if (code >= 0x0660 && code <= 0x0669) c = String(code - 0x0660);
+    else if (code >= 0x06F0 && code <= 0x06F9) c = String(code - 0x06F0);
+    else if (c === '٫' || c === '،' || c === ',' || c === '/') c = '.';
+    if (c >= '0' && c <= '9') out += c;
+    else if (c === '.' && !dot) { out += c; dot = true; }
+  }
+  return out;
+}
+
+/* ───────── الحالة ───────── */
+var F = null;               // الاستمارة
+var S = [];                 // [[id, name], ...]
+var MAX = 100;
+var V = {}, N = {};         // الدرجات والملاحظات (بالنص)
+var LS_KEY = '';
+var rows = {};              // id → {row, inp, note, nb}
+
+function showMsg(text, kind) {
+  var m = $('msg');
+  m.innerHTML = '';
+  if (!text) return;
+  var b = el('div', 'banner ' + (kind || 'warn'), text);
+  m.appendChild(b);
+}
+function numOf(id) {
+  var raw = normNum(V[id]);
+  if (raw === '') return null;
+  var x = parseFloat(raw);
+  return isNaN(x) ? NaN : x;
+}
+function update() {
+  var filled = 0, bad = 0, i, id, x, r;
+  for (i = 0; i < S.length; i++) {
+    id = S[i][0]; r = rows[id];
+    x = numOf(id);
+    var isBad = (x !== null) && (isNaN(x) || x < 0 || x > MAX);
+    var isDone = (x !== null) && !isBad;
+    if (isDone) filled++;
+    if (isBad) bad++;
+    r.row.className = 'row' + (isDone ? ' done' : '') + (isBad ? ' bad' : '');
+    r.nb.className = 'nb' + ((N[id] || '').trim() ? ' has' : '');
+  }
+  $('cntF').textContent = filled;
+  $('cntN').textContent = S.length;
+  $('barFill').style.width = (S.length ? Math.round(100 * filled / S.length) : 0) + '%';
+  $('send').textContent = '📤 إرسال للإدارة (' + filled + '/' + S.length + ')';
+  try { if (tg && tg.enableClosingConfirmation) { if (filled > 0) tg.enableClosingConfirmation(); else tg.disableClosingConfirmation(); } } catch (e) {}
+  return { filled: filled, bad: bad };
+}
+var saveT = null;
+function save() {
+  clearTimeout(saveT);
+  saveT = setTimeout(function () {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({ v: V, n: N, t: Date.now() }));
+      $('saveInd').textContent = '💾 حُفِظ';
+    } catch (e) { $('saveInd').textContent = ''; }
+  }, 300);
+}
+function focusNext(id) {
+  var i, k = -1;
+  for (i = 0; i < S.length; i++) if (S[i][0] === id) { k = i; break; }
+  if (k >= 0 && k + 1 < S.length) {
+    var nx = rows[S[k + 1][0]].inp;
+    nx.focus();
+    try { nx.select(); } catch (e) {}
+    try { nx.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+  } else { rows[id].inp.blur(); }
+}
+
+function build() {
+  var list = $('list'), i;
+  for (i = 0; i < S.length; i++) (function (idx) {
+    var id = S[idx][0];
+    var row = el('div', 'row');
+    var ix = el('div', 'idx', String(idx + 1));
+    var nm = el('div', 'nm', S[idx][1]);
+    var inp = el('input', 'g');
+    inp.type = 'text'; inp.setAttribute('inputmode', 'decimal');
+    inp.setAttribute('enterkeyhint', idx + 1 < S.length ? 'next' : 'done');
+    inp.setAttribute('autocomplete', 'off'); inp.setAttribute('aria-label', S[idx][1]);
+    inp.placeholder = '—';
+    inp.value = V[id] || '';
+    var nb = el('button', 'nb', '📝');
+    nb.type = 'button';
+    var note = el('div', 'note');
+    var ni = el('input'); ni.type = 'text'; ni.maxLength = 120;
+    ni.placeholder = 'ملاحظة (سلوك، درجة يومية، مستوى…) — اختياري';
+    ni.value = N[id] || '';
+    note.appendChild(ni);
+    if (ni.value) note.className = 'note show';
+    row.appendChild(ix); row.appendChild(nm); row.appendChild(inp); row.appendChild(nb); row.appendChild(note);
+    list.appendChild(row);
+    rows[id] = { row: row, inp: inp, nb: nb, note: note };
+    inp.addEventListener('input', function () {
+      var nv = normNum(inp.value);
+      if (nv !== inp.value) inp.value = nv;
+      V[id] = nv; update(); save();
+    });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); focusNext(id); }
+    });
+    inp.addEventListener('focus', function () { try { inp.select(); } catch (e) {} });
+    nb.addEventListener('click', function () {
+      note.classList.toggle('show');
+      if (note.classList.contains('show')) ni.focus();
+    });
+    ni.addEventListener('input', function () { N[id] = ni.value; update(); save(); });
+  })(i);
+}
+
+/* ───────── الإرسال ───────── */
+function buildPayload(withNotes) {
+  var g = {}, n = {}, i, id, x;
+  for (i = 0; i < S.length; i++) {
+    id = S[i][0]; x = numOf(id);
+    if (x === null || isNaN(x)) continue;
+    g[id] = (x === Math.floor(x)) ? Math.floor(x) : x;
+    if (withNotes && (N[id] || '').trim()) n[id] = N[id].trim().slice(0, 120);
+  }
+  var p = { app: 'enkidu-webform', v: 1, c: F.c, k: F.k, g: g };
+  if (withNotes && Object.keys(n).length) p.n = n;
+  return p;
+}
+function doSend() {
+  var st = update();
+  if (st.bad) {
+    showMsg('⚠ توجد درجات خارج المدى 0–' + MAX + ' (بالأحمر) — صحِّحها أولاً.', 'err');
+    var b = document.querySelector('.row.bad .g');
+    if (b) { b.focus(); try { b.scrollIntoView({ block: 'center' }); } catch (e) {} }
+    return;
+  }
+  if (!st.filled) { showMsg('⚠ لم تُدخل أي درجة بعد.', 'err'); return; }
+  showMsg('');
+  var go = function () {
+    var p = buildPayload(true), s = JSON.stringify(p);
+    if (utf8Len(s) > 4000) { p = buildPayload(false); s = JSON.stringify(p);
+      if (utf8Len(s) <= 4000) showMsg('ℹ حُذِفَت الملاحظات لِضيق حجم الإرسال — الدرجات كاملة.', 'warn'); }
+    if (utf8Len(s) > 4000) {
+      showMsg('⚠ عدد الطلاب كبير على هذه الطريقة — استعمل «📋 نموذج نصي» من البوت.', 'err');
+      return;
+    }
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ v: V, n: N, t: Date.now() })); } catch (e) {}
+    if (inTg) {
+      try { tg.sendData(s); } catch (e) { showMsg('⚠ تعذَّر الإرسال: ' + e, 'err'); }
+    } else {
+      $('outTxt').value = s; $('out').style.display = 'block';
+      try { $('out').scrollIntoView({ behavior: 'smooth' }); } catch (e) {}
+    }
+  };
+  if (st.filled < S.length) {
+    var q = 'لم تُدخل درجات لـ ' + (S.length - st.filled) + ' طالب. هل تريد الإرسال رغم ذلك؟';
+    if (tg && tg.showConfirm && inTg) tg.showConfirm(q, function (ok) { if (ok) go(); });
+    else if (window.confirm(q)) go();
+  } else go();
+}
+
+/* ───────── التشغيل ───────── */
+function init() {
+  try { F = readForm(); } catch (e) { F = null; }
+  if (!F || !F.s || !F.s.length || !F.c) {
+    $('ttl').textContent = '⚠ رابط الاستمارة غير صالح';
+    $('sub').textContent = 'افتح الاستمارة من زر البوت في تيليجرام.';
+    $('send').style.display = 'none'; $('hint').style.display = 'none';
+    return;
+  }
+  S = F.s;
+  MAX = parseFloat(F.m) || 100;
+  F.k = F.k || '';
+  $('ttl').textContent = '📝 ' + (F.t || 'استمارة') + (F.q ? ' — ' + F.q : '');
+  $('sub').textContent = 'العمود: ' + (F.l || F.k) + ' · الدرجة العظمى ' + MAX;
+  var i, id;
+  for (i = 0; i < S.length; i++) {
+    id = S[i][0];
+    V[id] = (F.g && F.g[id] != null) ? String(F.g[id]) : '';
+    N[id] = (F.n && F.n[id]) ? String(F.n[id]) : '';
+  }
+  LS_KEY = 'enkwf:' + F.c + ':' + F.k;
+  try {
+    var loc = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+    if (loc && loc.v) {
+      for (id in loc.v) if (Object.prototype.hasOwnProperty.call(V, id)) V[id] = String(loc.v[id]);
+      if (loc.n) for (id in loc.n) if (Object.prototype.hasOwnProperty.call(N, id)) N[id] = String(loc.n[id]);
+    }
+  } catch (e) {}
+  build();
+  update();
+  if (!inTg) showMsg('⚠ معاينة خارج تيليجرام — لن تصل الدرجات للبوت. افتح الاستمارة من زر البوت.', 'warn');
+  $('send').addEventListener('click', doSend);
+  $('outCopy').addEventListener('click', function () {
+    var t = $('outTxt'); t.select();
+    try { document.execCommand('copy'); } catch (e) {}
+  });
+}
+init();
+})();
+</script>
+</body>
+</html>
