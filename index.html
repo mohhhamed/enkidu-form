@@ -61,11 +61,29 @@ body{margin:0;background:var(--bg);color:var(--txt);
 .send:active{opacity:.85}
 .send[disabled]{opacity:.5}
 .hintline{text-align:center;color:var(--hint);font-size:12px;margin-top:6px}
-.out{margin:12px 14px;padding:10px;border:1px dashed var(--line);border-radius:10px;display:none}
-.out textarea{width:100%;height:110px;direction:ltr;font-family:monospace;font-size:11px;
-  background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px}
-.out button{margin-top:6px;padding:8px 14px;border-radius:8px;border:0;background:var(--btn);color:var(--btn-t);
-  font-family:inherit}
+.out{margin:12px 14px;padding:10px;border:1px dashed var(--line);border-radius:10px;display:none;
+  font-size:13px;line-height:1.7}
+.out .how{color:var(--hint);margin-top:2px}
+.out textarea{display:block;width:100%;height:150px;margin-top:8px;direction:rtl;font-family:inherit;
+  font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:8px;
+  padding:6px 8px}
+.out button{margin-top:6px;padding:9px 16px;border-radius:8px;border:0;background:var(--btn);color:var(--btn-t);
+  font-family:inherit;font-size:14px}
+/* شريط فوق لوحة المفاتيح: «التالي ⬇» (لوحة الأرقام في الآيفون بلا زرّ Enter أصلاً) */
+.kbbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:none;align-items:center;gap:8px;
+  padding:6px 10px;background:var(--card);border-top:1px solid var(--line);
+  box-shadow:0 -3px 10px rgba(0,0,0,.10);touch-action:manipulation}
+.kbbar.show{display:flex}
+.kb-next{flex:0 0 auto;min-width:112px;height:46px;padding:0 16px;border:0;border-radius:12px;
+  background:var(--btn);color:var(--btn-t);font-size:17px;font-weight:700;font-family:inherit}
+.kb-next:active{opacity:.85}
+.kb-who{flex:1 1 auto;min-width:0;text-align:center;font-size:12.5px;line-height:1.4;color:var(--hint);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-sm{flex:0 0 auto;width:46px;height:46px;border:1px solid var(--line);border-radius:12px;
+  background:transparent;color:var(--txt);font-size:18px;font-family:inherit}
+.kb-sm[disabled]{opacity:.35}
+body.kb{padding-bottom:calc(46vh + 70px)}
+body.kb .act{display:none}
 </style>
 </head>
 <body>
@@ -77,23 +95,34 @@ body{margin:0;background:var(--bg);color:var(--txt);
 </div>
 <div id="msg"></div>
 <div class="list" id="list"></div>
-<div class="out" id="out">
-  <b>معاينة خارج تيليجرام</b> — هذا ما كان سيُرسَل للبوت:
-  <textarea id="outTxt" readonly></textarea>
-  <button type="button" id="outCopy">📋 نسخ</button>
-</div>
+<div class="out" id="out"></div>
 <div class="act">
   <button class="send" id="send" type="button">📤 إرسال للإدارة</button>
-  <div class="hintline" id="hint">يُحفَظ ما تكتبه تلقائياً على هذا الجهاز</div>
+  <div class="hintline" id="hint">يُحفَظ ما تكتبه تلقائياً — زرّ «التالي ⬇» فوق لوحة المفاتيح ينقلك للطالب التالي</div>
+</div>
+<div class="kbbar" id="kbbar">
+  <button type="button" class="kb-next" id="kbNext">التالي ⬇</button>
+  <div class="kb-who" id="kbWho"></div>
+  <button type="button" class="kb-sm" id="kbPrev" aria-label="الطالب السابق">⬆</button>
+  <button type="button" class="kb-sm" id="kbDone" aria-label="إخفاء لوحة المفاتيح">✓</button>
 </div>
 
 <script>
 (function () {
 'use strict';
 
-/* ───────── تيليجرام ───────── */
+/* ───────── تيليجرام ─────────
+   فخّ حاسم: sendData لا يعمل إلا عند الفتح من زرّ لوحة المفاتيح، وفي هذه الحالة يترك تيليجرام
+   initData فارغاً عمداً. لذلك لا يصحّ التعرّف على تيليجرام بـ initData (كان الزرّ يذهب للمعاينة
+   ولا يُرسل شيئاً). المنصّة tgWebAppPlatform تُمرَّر دائماً داخل تيليجرام و'unknown' خارجه. */
 var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
-var inTg = !!(tg && tg.initData);
+var inTg = false;
+try {
+  if (tg) {
+    var plat = String(tg.platform || '').toLowerCase();
+    inTg = !!tg.initData || (plat !== '' && plat !== 'unknown');
+  }
+} catch (e) { inTg = false; }
 try { if (tg) { tg.ready(); tg.expand(); } } catch (e) {}
 
 function $(id) { return document.getElementById(id); }
@@ -250,6 +279,8 @@ var MAX = 100;
 var V = {}, N = {};         // الدرجات والملاحظات (بالنص)
 var LS_KEY = '';
 var rows = {};              // id → {row, inp, note, nb}
+var confirmPending = false; // ضغطة أولى على «إرسال» والبعض بلا درجة ⇒ ننتظر تأكيداً
+var stuckT = null;          // مؤقّت: إن بقيت الاستمارة مفتوحة بعد sendData
 
 function showMsg(text, kind) {
   var m = $('msg');
@@ -279,7 +310,8 @@ function update() {
   $('cntF').textContent = filled;
   $('cntN').textContent = S.length;
   $('barFill').style.width = (S.length ? Math.round(100 * filled / S.length) : 0) + '%';
-  $('send').textContent = '📤 إرسال للإدارة (' + filled + '/' + S.length + ')';
+  $('send').textContent = (confirmPending ? '✅ تأكيد الإرسال (' : '📤 إرسال للإدارة (')
+    + filled + '/' + S.length + ')';
   try { if (tg && tg.enableClosingConfirmation) { if (filled > 0) tg.enableClosingConfirmation(); else tg.disableClosingConfirmation(); } } catch (e) {}
   return { filled: filled, bad: bad };
 }
@@ -293,15 +325,104 @@ function save() {
     } catch (e) { $('saveInd').textContent = ''; }
   }, 300);
 }
-function focusNext(id) {
-  var i, k = -1;
-  for (i = 0; i < S.length; i++) if (S[i][0] === id) { k = i; break; }
-  if (k >= 0 && k + 1 < S.length) {
-    var nx = rows[S[k + 1][0]].inp;
-    nx.focus();
-    try { nx.select(); } catch (e) {}
-    try { nx.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
-  } else { rows[id].inp.blur(); }
+function idxOf(id) {
+  for (var i = 0; i < S.length; i++) if (S[i][0] === id) return i;
+  return -1;
+}
+
+/* ───────── شريط لوحة المفاتيح: «التالي ⬇» ─────────
+   لوحة الأرقام العشرية في الآيفون بلا زرّ Enter أصلاً (وفي بعض لوحات أندرويد)، فنثبّت شريطاً صغيراً
+   فوق لوحة المفاتيح: «التالي» ينقل لدرجة الطالب التالي، «⬆» السابق، «✓» يُخفي اللوحة.
+   يُرفَع فوق اللوحة بـ visualViewport (آيفون لا تُصغّر الصفحة، أندرويد تُصغّرها فيبقى bottom:0). */
+var kb = { bar: null, who: null, next: null, prev: null, cur: -1, hideT: null };
+
+function isMobileKb() {
+  try { if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true; } catch (e) {}
+  var p = tg ? String(tg.platform || '').toLowerCase() : '';
+  return p === 'ios' || p === 'android' || p === 'android_x';
+}
+function kbPlace() {
+  var vv = window.visualViewport, b = 0;
+  if (vv) b = Math.max(0, Math.round(window.innerHeight - vv.offsetTop - vv.height));
+  kb.bar.style.bottom = b + 'px';
+}
+function kbSync() {            // تغيّر حجم/موضع الـviewport (ظهور اللوحة أو اختفاؤها)
+  if (!kb.bar || !kb.bar.classList.contains('show')) return;
+  kbPlace();
+  if (kb.cur >= 0 && rows[S[kb.cur][0]]) ensureVisible(rows[S[kb.cur][0]].row);
+}
+/* يُبقي الصفّ ظاهراً بين الترويسة اللاصقة والشريط (لا يغطّيه الشريط ولا لوحة المفاتيح) */
+function ensureVisible(node) {
+  try {
+    var vv = window.visualViewport;
+    var vTop = vv ? vv.offsetTop : 0, vH = vv ? vv.height : window.innerHeight;
+    var head = document.querySelector('.top');
+    var topLimit = Math.max(vTop, head ? head.getBoundingClientRect().bottom : 0) + 6;
+    var botLimit = vTop + vH - (kb.bar && kb.bar.classList.contains('show') ? kb.bar.offsetHeight : 0) - 6;
+    var r = node.getBoundingClientRect();
+    if (r.bottom > botLimit) window.scrollBy(0, r.bottom - botLimit);
+    else if (r.top < topLimit) window.scrollBy(0, r.top - topLimit);
+  } catch (e) {}
+}
+function kbShow(idx) {
+  if (!kb.bar || !isMobileKb()) return;
+  clearTimeout(kb.hideT);
+  kb.cur = idx;
+  kb.who.textContent = (idx + 1) + ' من ' + S.length + ' — ' + S[idx][1];
+  kb.next.textContent = (idx + 1 < S.length) ? 'التالي ⬇' : '✓ تم';
+  kb.prev.disabled = idx <= 0;
+  document.body.classList.add('kb');
+  kb.bar.classList.add('show');
+  kbPlace();
+  /* اللوحة تظهر بحركة (~300ms): نعيد الضبط بعد استقرارها */
+  [0, 120, 350].forEach(function (ms) {
+    setTimeout(function () {
+      if (kb.cur !== idx) return;
+      kbPlace();
+      ensureVisible(rows[S[idx][0]].row);
+    }, ms);
+  });
+}
+function kbHideSoon() {
+  if (!kb.bar) return;
+  clearTimeout(kb.hideT);
+  /* مهلة قصيرة: الانتقال بين حقلين يُطلق blur ثم focus فلا نُومض الشريط */
+  kb.hideT = setTimeout(function () {
+    kb.cur = -1;
+    kb.bar.classList.remove('show');
+    document.body.classList.remove('kb');
+  }, 200);
+}
+function goTo(idx) {
+  var r = rows[S[idx][0]];
+  if (!r) return;
+  r.inp.focus();                  // داخل حدث اللمس نفسه: كي لا تُغلَق لوحة المفاتيح في iOS
+  try { r.inp.select(); } catch (e) {}
+  if (!isMobileKb()) { try { r.row.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {} }
+}
+function focusNext(id) {         // Enter أو «التالي»: الطالب التالي، وبعد الأخير تُخفى اللوحة
+  var k = idxOf(id);
+  if (k >= 0 && k + 1 < S.length) goTo(k + 1);
+  else if (rows[id]) rows[id].inp.blur();
+}
+function kbInit() {
+  kb.bar = $('kbbar'); kb.who = $('kbWho'); kb.next = $('kbNext'); kb.prev = $('kbPrev');
+  /* mousedown الافتراضي يسحب التركيز من الحقل فتُغلَق اللوحة؛ نمنعه ويبقى click يعمل */
+  kb.bar.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  kb.next.addEventListener('click', function () { if (kb.cur >= 0) focusNext(S[kb.cur][0]); });
+  kb.prev.addEventListener('click', function () { if (kb.cur > 0) goTo(kb.cur - 1); });
+  $('kbDone').addEventListener('click', function () {
+    var a = document.activeElement;
+    try { if (a && a.blur) a.blur(); } catch (e) {}
+  });
+  try {
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', kbSync);
+      window.visualViewport.addEventListener('scroll', kbSync);
+    }
+    window.addEventListener('resize', kbSync);
+    if (tg && tg.onEvent) tg.onEvent('viewportChanged', kbSync);
+  } catch (e) {}
 }
 
 function build() {
@@ -331,12 +452,16 @@ function build() {
     inp.addEventListener('input', function () {
       var nv = normNum(inp.value);
       if (nv !== inp.value) inp.value = nv;
-      V[id] = nv; update(); save();
+      V[id] = nv; clearConfirm(); update(); save();
     });
     inp.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); focusNext(id); }
+      if (e.key === 'Enter' || e.keyCode === 13) { e.preventDefault(); focusNext(id); }
     });
-    inp.addEventListener('focus', function () { try { inp.select(); } catch (e) {} });
+    inp.addEventListener('focus', function () {
+      try { inp.select(); } catch (e) {}
+      kbShow(idx);
+    });
+    inp.addEventListener('blur', kbHideSoon);
     nb.addEventListener('click', function () {
       note.classList.toggle('show');
       if (note.classList.contains('show')) ni.focus();
@@ -358,37 +483,126 @@ function buildPayload(withNotes) {
   if (withNotes && Object.keys(n).length) p.n = n;
   return p;
 }
+function clearConfirm() {
+  if (!confirmPending) return;
+  confirmPending = false;
+  showMsg('');
+}
+
+/* نموذج نصّي بنفس صيغة البوت («🔖 الكود | العمود» ثم «رقم) الاسم: الدرجة») — يُلصَق في المحادثة
+   فيسجّله البوت كالنموذج النصّي. هو الطريق البديل إن تعذَّر الإرسال المباشر. */
+function textFormChunks() {
+  var head = '🔖 ' + F.c + ' | ' + (F.l || F.k), lines = [], chunks = [], cur = [], size, i, id, x, v, nt;
+  for (i = 0; i < S.length; i++) {
+    id = S[i][0]; x = numOf(id);
+    if (x === null || isNaN(x)) continue;
+    v = (x === Math.floor(x)) ? String(Math.floor(x)) : String(x);
+    nt = (N[id] || '').trim().slice(0, 120);
+    lines.push((i + 1) + ') ' + S[i][1] + ': ' + v + (nt ? ' ' + nt : ''));
+  }
+  size = head.length;
+  for (i = 0; i < lines.length; i++) {
+    if (cur.length && size + lines[i].length + 1 > 3300) {
+      chunks.push(head + '\n' + cur.join('\n')); cur = []; size = head.length;
+    }
+    cur.push(lines[i]); size += lines[i].length + 1;
+  }
+  if (cur.length || !chunks.length) chunks.push(head + '\n' + cur.join('\n'));
+  return chunks;
+}
+function copyFrom(ta, btn) {
+  var ok = false;
+  try { ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  var fin = function (done) {
+    btn.textContent = done ? '✓ نُسِخ — الصقه في محادثة البوت' : '⚠ حدِّد النص يدوياً ثم انسخه';
+  };
+  if (ok) { fin(true); return; }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(function () { fin(true); }, function () { fin(false); });
+      return;
+    }
+  } catch (e) {}
+  fin(false);
+}
+/* kind: 'preview' (خارج تيليجرام) | 'stuck' (لم تُغلَق بعد sendData) | 'error' (رفض/استثناء) | 'big' */
+function showFallback(kind, detail) {
+  var box = $('out'), chunks = textFormChunks(), head;
+  var why = {
+    preview: 'معاينة خارج تيليجرام — لا تصل الدرجات للبوت من هنا.',
+    stuck: 'لم تُغلَق الاستمارة تلقائياً بعد الإرسال — قد لا تكون الدرجات وصلت. تحقّق من محادثة البوت '
+         + '(رسالة «وصلتني الاستمارة»).',
+    big: 'عدد الطلاب كبير على الإرسال المباشر.',
+    error: 'تعذَّر الإرسال المباشر' + (detail ? ' (' + detail + ')' : '') + '.'
+  }[kind] || '';
+  box.innerHTML = '';
+  head = el('div');
+  head.appendChild(el('b', null, why));
+  head.appendChild(el('div', 'how', 'لتسجيل الدرجات الآن: انسخ النص أدناه ثم الصقه في محادثة البوت وأرسله.'));
+  box.appendChild(head);
+  chunks.forEach(function (c, i) {
+    var ta = el('textarea'), b = el('button', null,
+      '📋 نسخ' + (chunks.length > 1 ? ' (الجزء ' + (i + 1) + ' من ' + chunks.length + ')' : ''));
+    ta.value = c; ta.setAttribute('aria-label', 'نموذج الدرجات');
+    b.type = 'button';
+    b.addEventListener('click', function () { copyFrom(ta, b); });
+    box.appendChild(ta); box.appendChild(b);
+  });
+  box.style.display = 'block';
+  try { box.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+}
+
+function deliver() {
+  var p = buildPayload(true), s = JSON.stringify(p);
+  if (utf8Len(s) > 4000) {
+    p = buildPayload(false); s = JSON.stringify(p);
+    if (utf8Len(s) <= 4000) showMsg('ℹ حُذِفَت الملاحظات لِضيق حجم الإرسال — الدرجات كاملة.', 'warn');
+  }
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ v: V, n: N, t: Date.now() })); } catch (e) {}
+  if (utf8Len(s) > 4000) { showFallback('big'); return; }
+  if (!inTg || !tg || typeof tg.sendData !== 'function') { showFallback('preview'); return; }
+  try {
+    try { tg.disableClosingConfirmation(); } catch (e) {}
+    tg.sendData(s);              // عند النجاح يُغلق تيليجرام الاستمارة ويصل النص للبوت
+  } catch (e) {
+    showFallback('error', String((e && e.message) || e));
+    return;
+  }
+  /* لم تُغلَق؟ الأرجح أنها لم تُفتح من زرّ لوحة المفاتيح (sendData لا يعمل إلا منه) أو أن العميل
+     قديم: نعرض الطريق البديل بدل أن يبقى الزرّ بلا أثر. مهلة كافية لشبكة بطيئة. */
+  $('send').disabled = true;
+  $('send').textContent = '⏳ جارٍ الإرسال…';
+  clearTimeout(stuckT);
+  stuckT = setTimeout(function () {
+    $('send').disabled = false;
+    update();
+    showFallback('stuck');
+  }, 6000);
+}
+
 function doSend() {
   var st = update();
   if (st.bad) {
+    confirmPending = false;
     showMsg('⚠ توجد درجات خارج المدى 0–' + MAX + ' (بالأحمر) — صحِّحها أولاً.', 'err');
     var b = document.querySelector('.row.bad .g');
     if (b) { b.focus(); try { b.scrollIntoView({ block: 'center' }); } catch (e) {} }
     return;
   }
-  if (!st.filled) { showMsg('⚠ لم تُدخل أي درجة بعد.', 'err'); return; }
+  if (!st.filled) { confirmPending = false; showMsg('⚠ لم تُدخل أي درجة بعد.', 'err'); return; }
+  /* تأكيد داخل الصفحة (لا showConfirm ولا confirm: لا يعملان في كل إصدارات تيليجرام/الويب‑فيو) */
+  if (st.filled < S.length && !confirmPending) {
+    confirmPending = true;
+    showMsg('ℹ لم تُدخل درجات لـ ' + (S.length - st.filled) + ' طالب. اضغط «تأكيد الإرسال» للإرسال '
+      + 'رغم ذلك، أو أكمِل الدرجات أولاً.', 'warn');
+    update();
+    return;
+  }
+  confirmPending = false;
   showMsg('');
-  var go = function () {
-    var p = buildPayload(true), s = JSON.stringify(p);
-    if (utf8Len(s) > 4000) { p = buildPayload(false); s = JSON.stringify(p);
-      if (utf8Len(s) <= 4000) showMsg('ℹ حُذِفَت الملاحظات لِضيق حجم الإرسال — الدرجات كاملة.', 'warn'); }
-    if (utf8Len(s) > 4000) {
-      showMsg('⚠ عدد الطلاب كبير على هذه الطريقة — استعمل «📋 نموذج نصي» من البوت.', 'err');
-      return;
-    }
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ v: V, n: N, t: Date.now() })); } catch (e) {}
-    if (inTg) {
-      try { tg.sendData(s); } catch (e) { showMsg('⚠ تعذَّر الإرسال: ' + e, 'err'); }
-    } else {
-      $('outTxt').value = s; $('out').style.display = 'block';
-      try { $('out').scrollIntoView({ behavior: 'smooth' }); } catch (e) {}
-    }
-  };
-  if (st.filled < S.length) {
-    var q = 'لم تُدخل درجات لـ ' + (S.length - st.filled) + ' طالب. هل تريد الإرسال رغم ذلك؟';
-    if (tg && tg.showConfirm && inTg) tg.showConfirm(q, function (ok) { if (ok) go(); });
-    else if (window.confirm(q)) go();
-  } else go();
+  update();                      // يُعيد نصّ الزرّ من «تأكيد الإرسال» إلى وضعه العادي
+  deliver();
 }
 
 /* ───────── التشغيل ───────── */
@@ -420,13 +634,10 @@ function init() {
     }
   } catch (e) {}
   build();
+  kbInit();
   update();
   if (!inTg) showMsg('⚠ معاينة خارج تيليجرام — لن تصل الدرجات للبوت. افتح الاستمارة من زر البوت.', 'warn');
   $('send').addEventListener('click', doSend);
-  $('outCopy').addEventListener('click', function () {
-    var t = $('outTxt'); t.select();
-    try { document.execCommand('copy'); } catch (e) {}
-  });
 }
 init();
 })();
