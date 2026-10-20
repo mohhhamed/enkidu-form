@@ -5,7 +5,173 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>استمارة الدرجات — إنكيدو</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+/* ═══ حارس الإقلاع (ES3 عمداً ليعمل على أقدم محرّكات العرض) ═══
+   إن لم تُكمِل الاستمارة تشغيل نفسها خلال ثوانٍ (خطأ جافاسكربت على جهاز قديم مثلاً) بقي الجهاز أمام شاشة
+   بيضاء بلا تفسير. هنا نعرض سبب التعذّر والحلّ البديل (النموذج النصي) بدل الصمت. */
+window.__enk = { ok: false, errs: [], ver: '2026.10.21' };
+window.onerror = function (m, s, l) {
+  try { window.__enk.errs.push(String(m) + (l ? ' @' + l : '')); } catch (e) {}
+  return false;
+};
+window.__enkFail = function (why) {
+  try {
+    if (window.__enk.ok && !why) return;
+    var b = document.getElementById('boot');
+    if (!b) return;
+    var e = window.__enk.errs.join(' | ');
+    b.innerHTML = '<b style="color:#DC2626">⚠ تعذَّر تشغيل الاستمارة على هذا الجهاز</b><br>' +
+      'الحلّ السريع: ارجع لمحادثة البوت واضغط <b>«📋 نموذج نصي»</b> (أو أرسل <b>/قائمة</b>) ثم انسخ القائمة، ' +
+      'عبّئ الدرجات بعد النقطتين وأرسلها في المحادثة.<br>' +
+      'وللإصلاح الدائم حدِّث تطبيق تيليجرام، وعلى أندرويد حدِّث أيضاً «Android System WebView».' +
+      '<div style="margin-top:8px;font-size:11px;opacity:.7;direction:ltr;text-align:left;word-break:break-all">' +
+      String(why || '') + ' ' + e + ' | ' + (navigator.userAgent || '') + '</div>';
+    b.style.display = 'block';
+  } catch (x) {}
+};
+window.setTimeout(function () { window.__enkFail(); }, 6000);
+</script>
+<script>
+/* ═══ جسر تيليجرام المدمج ═══
+   كانت الصفحة تحمّل https://telegram.org/js/telegram-web-app.js كسكربت خارجي متزامن في <head>. عند من تُحجَب
+   عنده telegram.org أو تتباطأ (والمحادثة نفسها تعمل بوسيط/شبكة أخرى) تبقى الصفحة بيضاء طوال مهلة الاتصال، ثم
+   تظهر كأنها «خارج تيليجرام» فلا يصل شيء للبوت. أُثبت ذلك بالتجربة. لذلك نطبّق هنا الجزء الذي نحتاجه من
+   بروتوكول Mini Apps نفسه بلا أي اعتماد خارجي: ready / expand / sendData / الثيم / viewportChanged.
+   الإرسال: TelegramWebviewProxy.postEvent (iOS/Android/Desktop/macOS) أو window.parent.postMessage (الويب)،
+   والاستقبال: Telegram.WebView.receiveEvent (يستدعيه العميل). */
+(function () {
+  var W = window;
+  try {
+    if (W.Telegram && W.Telegram.WebApp) return;     // سكربت رسمي موجود أصلاً: لا نعبث به
+    var doc = W.document, handlers = {}, params = {}, closing = null;
+
+    function dec(s) { try { return decodeURIComponent(String(s).replace(/\+/g, '%20')); } catch (e) { return String(s); } }
+    function parseParams(h) {
+      var o = {}, parts, i, idx;
+      h = String(h || '').replace(/^[#?]/, '');
+      if (!h) return o;
+      parts = h.split('&');
+      for (i = 0; i < parts.length; i++) {
+        if (!parts[i]) continue;
+        idx = parts[i].indexOf('=');
+        if (idx < 0) { o[dec(parts[i])] = null; continue; }
+        o[dec(parts[i].slice(0, idx))] = dec(parts[i].slice(idx + 1));
+      }
+      return o;
+    }
+    var stored = null, k;
+    params = parseParams(W.location.hash);
+    try { stored = JSON.parse(W.sessionStorage.getItem('__telegram__initParams') || 'null'); } catch (e) {}
+    if (stored) for (k in stored) if (typeof params[k] === 'undefined') params[k] = stored[k];
+    try { W.sessionStorage.setItem('__telegram__initParams', JSON.stringify(params)); } catch (e) {}
+
+    var isIframe = false;
+    try { isIframe = (W.parent != null && W !== W.parent); } catch (e) {}
+
+    function post(type, data) {
+      var d = (data === undefined) ? '' : data;
+      try {
+        if (W.TelegramWebviewProxy !== undefined) { W.TelegramWebviewProxy.postEvent(type, JSON.stringify(d)); return true; }
+      } catch (e) {}
+      try {
+        if (W.external && typeof W.external.notify !== 'undefined') {
+          W.external.notify(JSON.stringify({ eventType: type, eventData: d })); return true;
+        }
+      } catch (e) {}
+      try {
+        if (isIframe) { W.parent.postMessage(JSON.stringify({ eventType: type, eventData: d }), '*'); return true; }
+      } catch (e) {}
+      return false;
+    }
+
+    function lum(c) {                      // سطوع لون #rrggbb (للتمييز بين الثيم الداكن والفاتح)
+      var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(c || ''));
+      if (!m) return 255;
+      return 0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16);
+    }
+    function applyTheme(tp) {
+      var root = doc.documentElement, key;
+      if (!tp || typeof tp !== 'object') return;
+      for (key in tp) { try { root.style.setProperty('--tg-theme-' + key.replace(/_/g, '-'), tp[key]); } catch (e) {} }
+      app.themeParams = tp;
+      app.colorScheme = (tp.bg_color && lum(tp.bg_color) < 128) ? 'dark' : 'light';
+      try { root.style.colorScheme = app.colorScheme; } catch (e) {}
+    }
+    function emit(name, a) {
+      var hs = handlers[name], j;
+      if (!hs) return;
+      for (j = 0; j < hs.length; j++) { try { hs[j].call(app, a); } catch (e) {} }
+    }
+    function receive(type, data) {
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) {} }
+      if (type === 'theme_changed') { applyTheme(data && data.theme_params); emit('themeChanged'); }
+      else if (type === 'viewport_changed') {
+        app.isExpanded = !!(data && data.is_expanded);
+        emit('viewportChanged', { isStateStable: !data || data.is_state_stable !== false });
+      } else { emit(type, data); }
+    }
+    function setClosing(on) {              // لا نُرسل الحدث إلا عند تغيّر الحالة (كان يُرسَل مع كل ضغطة مفتاح)
+      if (closing === on) return;
+      closing = on;
+      post('web_app_setup_closing_behavior', { need_confirmation: on });
+    }
+    function bytes(s) { try { return unescape(encodeURIComponent(s)).length; } catch (e) { return String(s).length * 3; } }
+
+    var app = {
+      initData: params.tgWebAppData || '',
+      initDataUnsafe: {},
+      version: params.tgWebAppVersion || '6.0',
+      platform: params.tgWebAppPlatform || 'unknown',
+      colorScheme: 'light', themeParams: {}, isExpanded: false, __bridge: 'enkidu-inline-1',
+      ready: function () { post('web_app_ready'); },
+      expand: function () { post('web_app_expand'); },
+      close: function () { post('web_app_close'); },
+      sendData: function (data) {
+        data = String(data == null ? '' : data);
+        if (!data.length) throw new Error('Data is required');
+        if (bytes(data) > 4096) throw new Error('Data is too long');
+        if (!post('web_app_data_send', { data: data })) throw new Error('Telegram bridge unavailable');
+      },
+      enableClosingConfirmation: function () { setClosing(true); },
+      disableClosingConfirmation: function () { setClosing(false); },
+      onEvent: function (t, cb) { (handlers[t] = handlers[t] || []).push(cb); },
+      offEvent: function (t, cb) {
+        var hs = handlers[t], j;
+        if (!hs) return;
+        for (j = hs.length - 1; j >= 0; j--) if (hs[j] === cb) hs.splice(j, 1);
+      }
+    };
+
+    var themeInit = null;
+    try { themeInit = params.tgWebAppThemeParams ? JSON.parse(params.tgWebAppThemeParams) : null; } catch (e) {}
+    if (themeInit) applyTheme(themeInit);
+
+    if (isIframe) {
+      W.addEventListener('message', function (e) {
+        var d;
+        if (e.source !== W.parent) return;
+        try { d = JSON.parse(e.data); } catch (x) { return; }
+        if (!d || !d.eventType) return;
+        if (d.eventType === 'reload_iframe') { try { W.location.reload(); } catch (y) {} return; }
+        receive(d.eventType, d.eventData);
+      });
+    }
+    W.Telegram = {
+      WebView: {
+        receiveEvent: receive, initParams: params, isIframe: isIframe,
+        postEvent: function (t, cb, d) { var ok = post(t, d); try { if (cb) cb(ok ? undefined : { notAvailable: true }); } catch (e) {} }
+      },
+      WebApp: app
+    };
+    W.TelegramGameProxy_receiveEvent = receive;     // أسماء قديمة (للتوافق) يستدعيها بعض العملاء القديمة
+    W.TelegramGameProxy = { receiveEvent: receive };
+    post('web_app_request_theme');
+    post('web_app_request_viewport');
+  } catch (e) {
+    try { window.__enk.errs.push('bridge: ' + String((e && e.message) || e)); } catch (x) {}
+  }
+})();
+</script>
 <style>
 :root{
   --bg:var(--tg-theme-bg-color,#F1F5F9);
@@ -22,7 +188,9 @@ html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--txt);
   font-family:system-ui,-apple-system,'Segoe UI','Cairo','Tajawal',Tahoma,Arial,sans-serif;
   padding-bottom:calc(92px + env(safe-area-inset-bottom));}
-.top{position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 14px 8px;
+.boot{margin:40px 16px;padding:18px;border:1px dashed var(--line);border-radius:12px;text-align:center;
+  line-height:1.9;font-size:14px;color:var(--txt)}
+.top{position:-webkit-sticky;position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 14px 8px;
   border-bottom:1px solid var(--line)}
 .top h1{margin:0;font-size:17px;line-height:1.5}
 .top .sub{color:var(--hint);font-size:12.5px;margin-top:2px}
@@ -34,8 +202,19 @@ body{margin:0;background:var(--bg);color:var(--txt);
 .banner.warn{background:rgba(217,119,6,.14);color:var(--warn);border:1px solid rgba(217,119,6,.4)}
 .banner.err{background:rgba(220,38,38,.12);color:var(--bad);border:1px solid rgba(220,38,38,.4)}
 .list{padding:10px 12px 0}
-.row{display:grid;grid-template-columns:34px 1fr 96px 40px;align-items:center;gap:8px;
+/* تصميم احتياطي بـ flex لمحرّكات العرض التي لا تعرف CSS Grid (أندرويد القديم)، ثم grid حيث يتوفّر */
+.row{display:flex;flex-wrap:wrap;align-items:center;
   background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px}
+.row .idx{flex:0 0 28px;margin-left:8px}
+.row .nm{flex:1 1 120px;min-width:0;margin-left:8px}
+.row .g{flex:0 0 96px;width:96px;margin-left:8px}
+.row .nb{flex:0 0 40px}
+@supports (display:grid){
+  .row{display:grid;grid-template-columns:34px 1fr 96px 40px;gap:8px}
+  .row .idx,.row .nm,.row .g{margin-left:0}
+  .row .g{width:100%}
+  .row .note{margin-top:0}
+}
 .row.done{border-color:rgba(22,163,74,.55)}
 .row.bad{border-color:var(--bad);background:rgba(220,38,38,.08)}
 .idx{width:28px;height:28px;border-radius:50%;background:var(--line);color:var(--txt);
@@ -50,7 +229,7 @@ body{margin:0;background:var(--bg);color:var(--txt);
 .nb{width:40px;height:40px;border:1px solid var(--line);border-radius:10px;background:transparent;
   color:var(--hint);font-size:18px}
 .nb.has{color:var(--btn);border-color:var(--btn)}
-.note{grid-column:1 / -1;display:none}
+.note{grid-column:1 / -1;flex:0 0 100%;display:none;margin-top:8px}
 .note.show{display:block}
 .note input{width:100%;height:42px;border:1px solid var(--line);border-radius:10px;background:var(--bg);
   color:var(--txt);padding:0 10px;font-size:14px;font-family:inherit}
@@ -61,6 +240,7 @@ body{margin:0;background:var(--bg);color:var(--txt);
 .send:active{opacity:.85}
 .send[disabled]{opacity:.5}
 .hintline{text-align:center;color:var(--hint);font-size:12px;margin-top:6px}
+.ver{text-align:center;color:var(--hint);font-size:10.5px;opacity:.75;margin-top:2px;direction:ltr}
 .out{margin:12px 14px;padding:10px;border:1px dashed var(--line);border-radius:10px;display:none;
   font-size:13px;line-height:1.7}
 .out .how{color:var(--hint);margin-top:2px}
@@ -70,9 +250,10 @@ body{margin:0;background:var(--bg);color:var(--txt);
 .out button{margin-top:6px;padding:9px 16px;border-radius:8px;border:0;background:var(--btn);color:var(--btn-t);
   font-family:inherit;font-size:14px}
 /* شريط فوق لوحة المفاتيح: «التالي ⬇» (لوحة الأرقام في الآيفون بلا زرّ Enter أصلاً) */
-.kbbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:none;align-items:center;gap:8px;
+.kbbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:none;align-items:center;
   padding:6px 10px;background:var(--card);border-top:1px solid var(--line);
   box-shadow:0 -3px 10px rgba(0,0,0,.10);touch-action:manipulation}
+.kbbar > *{margin-left:8px}
 .kbbar.show{display:flex}
 .kb-next{flex:0 0 auto;min-width:112px;height:46px;padding:0 16px;border:0;border-radius:12px;
   background:var(--btn);color:var(--btn-t);font-size:17px;font-weight:700;font-family:inherit}
@@ -87,6 +268,7 @@ body.kb .act{display:none}
 </style>
 </head>
 <body>
+<div class="boot" id="boot">⏳ جارٍ تحميل الاستمارة…</div>
 <div class="top">
   <h1 id="ttl">📝 استمارة الدرجات</h1>
   <div class="sub" id="sub"></div>
@@ -99,6 +281,7 @@ body.kb .act{display:none}
 <div class="act">
   <button class="send" id="send" type="button">📤 إرسال للإدارة</button>
   <div class="hintline" id="hint">يُحفَظ ما تكتبه تلقائياً — زرّ «التالي ⬇» فوق لوحة المفاتيح ينقلك للطالب التالي</div>
+  <div class="ver" id="ver"></div>
 </div>
 <div class="kbbar" id="kbbar">
   <button type="button" class="kb-next" id="kbNext">التالي ⬇</button>
@@ -114,13 +297,17 @@ body.kb .act{display:none}
 /* ───────── تيليجرام ─────────
    فخّ حاسم: sendData لا يعمل إلا عند الفتح من زرّ لوحة المفاتيح، وفي هذه الحالة يترك تيليجرام
    initData فارغاً عمداً. لذلك لا يصحّ التعرّف على تيليجرام بـ initData (كان الزرّ يذهب للمعاينة
-   ولا يُرسل شيئاً). المنصّة tgWebAppPlatform تُمرَّر دائماً داخل تيليجرام و'unknown' خارجه. */
+   ولا يُرسل شيئاً). المنصّة tgWebAppPlatform تُمرَّر دائماً داخل تيليجرام و'unknown' خارجه، ووجود
+   TelegramWebviewProxy (التطبيقات الأصلية) أو الإطار (تيليجرام ويب) يدلّ على تيليجرام أيضاً. */
+var FORM_VER = '2026.10.21';
 var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
-var inTg = false;
+var inTg = false, plat = '', tgVer = '';
 try {
   if (tg) {
-    var plat = String(tg.platform || '').toLowerCase();
-    inTg = !!tg.initData || (plat !== '' && plat !== 'unknown');
+    plat = String(tg.platform || '').toLowerCase();
+    tgVer = String(tg.version || '');
+    inTg = !!tg.initData || (plat !== '' && plat !== 'unknown') || !!window.TelegramWebviewProxy ||
+      !!(window.Telegram.WebView && window.Telegram.WebView.isIframe);
   }
 } catch (e) { inTg = false; }
 try { if (tg) { tg.ready(); tg.expand(); } } catch (e) {}
@@ -479,7 +666,8 @@ function buildPayload(withNotes) {
     g[id] = (x === Math.floor(x)) ? Math.floor(x) : x;
     if (withNotes && (N[id] || '').trim()) n[id] = N[id].trim().slice(0, 120);
   }
-  var p = { app: 'enkidu-webform', v: 1, c: F.c, k: F.k, g: g };
+  /* pl/tv/fv: منصّة العميل وإصداره وإصدار الصفحة — يسجّلها البوت لتشخيص «لا تعمل عند بعضهم» */
+  var p = { app: 'enkidu-webform', v: 1, c: F.c, k: F.k, g: g, pl: plat, tv: tgVer, fv: FORM_VER };
   if (withNotes && Object.keys(n).length) p.n = n;
   return p;
 }
@@ -606,9 +794,18 @@ function doSend() {
 }
 
 /* ───────── التشغيل ───────── */
+function bootDone() {
+  try { window.__enk.ok = true; } catch (e) {}
+  var b = $('boot');
+  if (b) b.style.display = 'none';
+  try {
+    $('ver').textContent = 'الاستمارة ' + FORM_VER + (inTg ? ' · ' + (plat || '?') + ' ' + tgVer : ' · خارج تيليجرام');
+  } catch (e) {}
+}
 function init() {
   try { F = readForm(); } catch (e) { F = null; }
   if (!F || !F.s || !F.s.length || !F.c) {
+    bootDone();
     $('ttl').textContent = '⚠ رابط الاستمارة غير صالح';
     $('sub').textContent = 'افتح الاستمارة من زر البوت في تيليجرام.';
     $('send').style.display = 'none'; $('hint').style.display = 'none';
@@ -636,10 +833,14 @@ function init() {
   build();
   kbInit();
   update();
+  bootDone();
   if (!inTg) showMsg('⚠ معاينة خارج تيليجرام — لن تصل الدرجات للبوت. افتح الاستمارة من زر البوت.', 'warn');
   $('send').addEventListener('click', doSend);
 }
-init();
+try { init(); } catch (e) {
+  try { window.__enk.errs.push('init: ' + String((e && e.message) || e)); } catch (x) {}
+  try { window.__enkFail('init'); } catch (x) {}
+}
 })();
 </script>
 </body>
